@@ -551,6 +551,7 @@ doc_events["WhatsApp Message"] = {"on_update": "campus.campus_messaging.delivery
 app_include_js = [
 	"/assets/campus/js/approvals.js",
 	"/assets/campus/js/attach_evidence.js",
+	"/assets/campus/js/batch_attendance.js",
 ]  # P3-T04 Attach as Evidence
 
 doctype_js = {
@@ -563,7 +564,12 @@ doctype_js["Lead"] = "public/js/lead_convert.js"  # M04-01 Convert to Applicant 
 doctype_js["Employee"] = "public/js/employee_faculty.js"  # P2-T09 self-appraisal button
 doctype_js["Appraisal"] = "public/js/appraisal_review.js"  # P2-T09 request HOD review
 doctype_js["Exam Session"] = "public/js/exam_session_question_paper.js"  # P2-T17 withdraw a course's paper
-doctype_list_js = {"Student": "public/js/student_list.js"}
+doctype_js["Student Attendance"] = "public/js/student_attendance.js"
+doctype_js["Student Attendance Tool"] = "public/js/student_attendance_tool.js"
+doctype_list_js = {
+	"Student": "public/js/student_list.js",
+	"Student Attendance": "public/js/student_attendance_list.js",
+}
 
 PORTAL_SCOPED = list(PORTAL_SCOPES)  # Student/Guardian roles are scoped to their own / linked students
 

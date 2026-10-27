@@ -121,13 +121,12 @@ def check_capacity(student_count, mentor_count, per_mentor):
 
 def set_class_advisor(doc, method=None):
 	"""Student validate: the CLASS-ADVISOR of the first of the student's groups that has one (Position Holder)."""
-	groups = (
-		frappe.get_all(
-			"Student Group Student",
-			filters={"student": doc.name, "parenttype": "Student Group", "active": 1},
-			pluck="parent",
-		)
-		if doc.name
-		else []
+	if not doc.name or not frappe.db.exists("DocType", "Student Group Student"):
+		doc.oc_class_advisor = None
+		return
+	groups = frappe.get_all(
+		"Student Group Student",
+		filters={"student": doc.name, "parenttype": "Student Group", "active": 1},
+		pluck="parent",
 	)
 	doc.oc_class_advisor = next((u for g in groups for u in resolve_position("CLASS-ADVISOR", scope=g)), None)

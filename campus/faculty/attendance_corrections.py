@@ -40,13 +40,20 @@ def cutoff_hours():
 	return cint(frappe.get_meta(SETTINGS).get_field(fieldname).default)
 
 
+def _schedule_field():
+	return "subject_schedule" if frappe.db.has_column("Student Attendance", "subject_schedule") else "course_schedule"
+
+
 def past_cutoff(course_schedule):
 	"""True when the cut-off after the period's first marking (any record, also a cancelled one) has passed."""
+	if not course_schedule:
+		return False
+	col = _schedule_field()
 	attendance = frappe.qb.DocType("Student Attendance")
 	first = (
 		frappe.qb.from_(attendance)
 		.select(Min(attendance.creation))
-		.where(attendance.course_schedule == course_schedule)
+		.where(attendance[col] == course_schedule)
 		.run()[0][0]
 	)
 	return bool(first) and now_datetime() > add_to_date(get_datetime(first), hours=cutoff_hours())
@@ -57,9 +64,10 @@ def refuse_late_changes(course_schedule, wanted):
 	change nor a first mark. The caller holds the period lock; the marks are re-read with a locking read."""
 	if not wanted or not past_cutoff(course_schedule):
 		return
+	col = _schedule_field()
 	marked = dict(
 		frappe.db.sql(
-			"select student, status from `tabStudent Attendance` where course_schedule = %s and docstatus = 1 for update",
+			f"select student, status from `tabStudent Attendance` where `{col}` = %s and docstatus = 1 for update",
 			course_schedule,
 		)
 	)
@@ -80,7 +88,8 @@ def guard_record(doc, method=None):
 	cut-off ago."""
 	if doc.flags.attendance_correction or backed_by_leave(doc):
 		return
-	late = past_cutoff(doc.course_schedule) if doc.course_schedule else past_day_cutoff(doc.date)
+	schedule = doc.get("course_schedule") or doc.get("subject_schedule")
+	late = past_cutoff(schedule) if schedule else past_day_cutoff(doc.date)
 	if late:
 		frappe.throw(late_change_message(doc))
 
@@ -97,20 +106,27 @@ def backed_by_leave(doc):
 	status is Leave (Present when the leave marks present)."""
 	if not doc.leave_application:
 		return False
+	leave_cols = frappe.db.get_table_columns("Student Leave Application") or []
+	schedule_col = "subject_schedule" if "subject_schedule" in leave_cols else ("course_schedule" if "course_schedule" in leave_cols else None)
+	fields = ["student", "docstatus", "from_date", "to_date", "mark_as_present", "attendance_based_on", "student_group"]
+	if schedule_col:
+		fields.append(schedule_col)
 	leave = frappe.db.get_value(
 		"Student Leave Application", doc.leave_application,
-		["student", "docstatus", "from_date", "to_date", "mark_as_present", "attendance_based_on", "student_group", "course_schedule"],
+		fields,
 		as_dict=True,
 	)  # fmt: skip
+	schedule = doc.get("course_schedule") or doc.get("subject_schedule")
+	leave_schedule = leave.get(schedule_col) if (leave and schedule_col) else None
 	return (
 		bool(leave)
 		and leave.docstatus == 1
 		and leave.student == doc.student
 		and getdate(leave.from_date) <= getdate(doc.date) <= getdate(leave.to_date)
-		and leave.course_schedule in (None, "", doc.course_schedule)
+		and leave_schedule in (None, "", schedule)
 		and (
 			leave.attendance_based_on != "Student Group"
-			or leave.student_group in (None, "", doc.student_group)
+			or leave.student_group in (None, "", doc.get("student_group"))
 		)
 		and doc.status == ("Present" if leave.mark_as_present else "Leave")
 	)
@@ -121,15 +137,17 @@ def guard_cancel(doc, method=None):
 	exemption: Education's leave cancel sets docstatus with db.set_value and never reaches this hook."""
 	if doc.flags.attendance_correction:
 		return
-	late = past_cutoff(doc.course_schedule) if doc.course_schedule else past_day_cutoff(doc.date)
+	schedule = doc.get("course_schedule") or doc.get("subject_schedule")
+	late = past_cutoff(schedule) if schedule else past_day_cutoff(doc.date)
 	if late:
 		frappe.throw(late_change_message(doc))
 
 
 def late_change_message(doc):
+	schedule = doc.get("course_schedule") or doc.get("subject_schedule")
 	return _(
 		"The attendance of {0} was first marked more than {1} hours ago; {2} changes only through an approved Attendance Correction Request."
-	).format(doc.course_schedule, cutoff_hours(), frappe.bold(doc.student))
+	).format(schedule, cutoff_hours(), frappe.bold(doc.student))
 
 
 # ---- the request ----------------------------------------------------------------------------
@@ -187,8 +205,10 @@ def department_of(course, program):
 
 
 def marked_record(doc, for_update=False):
+	col = _schedule_field()
+	schedule = doc.get("course_schedule") or doc.get("subject_schedule")
 	return frappe.db.get_value(
-		"Student Attendance", {"student": doc.student, "course_schedule": doc.course_schedule, "docstatus": 1},
+		"Student Attendance", {"student": doc.student, col: schedule, "docstatus": 1},
 		["name", "status"], as_dict=True, for_update=for_update,
 	)  # fmt: skip
 
